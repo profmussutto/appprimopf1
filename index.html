@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  html,body{margin:0;padding:0;width:100%;height:100%;background:#111;color:#fff;font-family:system-ui}
+  header{padding:14px 18px;background:#000;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;z-index:10}
+  header button{background:#fff;color:#111;border:0;padding:8px 14px;border-radius:8px;cursor:pointer;font-weight:700}
+  .container{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:18px;padding:18px}
+  .player{background:#1e1e1e;border-radius:16px;padding:16px;border:2px solid transparent;transition:.2s}
+  .player.active{border-color:#4ade80}
+  .row{display:flex;gap:10px;align-items:center;margin:10px 0}
+  input{width:90px;padding:8px;border-radius:8px;border:0;text-align:center;font-weight:700;font-size:16px}
+  .controls{display:flex;gap:10px}
+  .controls button{
+    flex:1;padding:12px;border-radius:10px;border:0;font-weight:800;cursor:pointer;
+    transition:all .15s ease; opacity:.7; transform:scale(1);
+  }
+  .controls button:hover{opacity:1; transform:scale(1.02)}
+  .controls button:active{transform:scale(.96)}
+  .play{background:#4ade80} .pause{background:#facc15} .stop{background:#f87171}
+  .controls button.active{opacity:1; transform:scale(1.05); box-shadow:0 0 0 3px rgba(255,255,255,.15)}
+  .controls button.active.play{box-shadow:0 0 14px rgba(74,222,128,.7)}
+  .controls button.active.pause{box-shadow:0 0 14px rgba(250,204,21,.7)}
+  .controls button.active.stop{box-shadow:0 0 14px rgba(248,113,113,.7)}
+  .status{margin-top:8px;font-size:12px;opacity:.6}
+  .badge{display:inline-block;font-size:10px;padding:3px 7px;border-radius:5px;background:#333;margin-right:6px}
+  .badge.drum{background:#f87171;color:#111} .badge.piano{background:#60a5fa;color:#111}
+  #loading{position:fixed;inset:0;background:#111;display:flex;align-items:center;justify-content:center;flex-direction:column;z-index:99}
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tonejs/midi@2.0.28/build/Midi.js"></script>
+</head>
+<body>
+<div id="loading"><div style="font-size:18px">🎹 Caricamento pianoforte...</div><div style="font-size:12px;opacity:.6;margin-top:6px">pochi secondi la prima volta</div></div>
+<header><div>Player - Piano + Batteria</div><button onclick="document.documentElement.requestFullscreen()">Schermo intero</button></header>
+<div class="container" id="container"></div>
+<script>
+const API_URL = 'https://script.google.com/macros/s/AKfycbx_zNc4fidhxvJgv392RTP5WIEF2E6vwvd5ss2AyY1nsJsrb-vquaYujHPpKeg2Zenk/exec';
+let MIDI_URLS = [];
+const TITLES = ['NEVE NEVE','LE NOTE DEL VIOLINO','DO RE MI','DEVINETTE'];
+const DEFAULT_BPM = 90;
+const players = {};
+
+let pianoReady=false;
+const pianoSampler=new Tone.Sampler({
+  urls:{A0:"A0.mp3",C1:"C1.mp3","D#1":"Ds1.mp3","F#1":"Fs1.mp3",A1:"A1.mp3",C2:"C2.mp3","D#2":"Ds2.mp3","F#2":"Fs2.mp3",A2:"A2.mp3",C3:"C3.mp3","D#3":"Ds3.mp3","F#3":"Fs3.mp3",A3:"A3.mp3",C4:"C4.mp3","D#4":"Ds4.mp3","F#4":"Fs4.mp3",A4:"A4.mp3",C5:"C5.mp3","D#5":"Ds5.mp3","F#5":"Fs5.mp3",A5:"A5.mp3",C6:"C6.mp3","D#6":"Ds6.mp3","F#6":"Fs6.mp3",A6:"A6.mp3",C7:"C7.mp3","D#7":"Ds7.mp3","F#7":"Fs7.mp3",A7:"A7.mp3",C8:"C8.mp3"},
+  baseUrl:"https://tonejs.github.io/audio/salamander/",
+  onload:()=>{pianoReady=true; document.getElementById('loading').style.display='none';}
+}).toDestination();
+
+const drumKit=new Tone.Players({
+  kick:"https://tonejs.github.io/audio/drum-samples/CR78/kick.mp3",
+  snare:"https://tonejs.github.io/audio/drum-samples/CR78/snare.mp3",
+  hihat:"https://tonejs.github.io/audio/drum-samples/CR78/hihat.mp3"
+}).toDestination();
+drumKit.volume.value=-4;
+
+function createUI(){
+  const c=document.getElementById('container');
+  TITLES.forEach((t,i)=>{
+    c.innerHTML+=`<div class="player" id="player-${i}"><h3>${t}</h3><div id="tracks-${i}"></div>
+    <div class="row">BPM: <input id="bpm-${i}" type="number" value="${DEFAULT_BPM}" min="20" max="300"> <span id="orig-${i}"></span></div>
+    <div class="controls"><button class="play" id="btn-play-${i}" onclick="handlePlay(${i})">▶ Play</button><button class="pause" id="btn-pause-${i}" onclick="handlePause(${i})">⏸ Pause</button><button class="stop active" id="btn-stop-${i}" onclick="handleStop(${i})">⏹ Stop</button></div>
+    <div class="status" id="status-${i}">Caricamento...</div></div>`;
+  });
+}
+function setButtonState(i, state){
+  const root=document.getElementById(`player-${i}`);
+  root.querySelectorAll('.controls button').forEach(b=>b.classList.remove('active'));
+  const btn=document.getElementById(`btn-${state}-${i}`);
+  if(btn) btn.classList.add('active');
+}
+function stopAllExcept(cur){ Object.keys(players).forEach(k=>{ const idx=parseInt(k); if(idx!==cur && players[idx].isPlaying) handleStop(idx); }); }
+
+async function initPlayer(i){
+  try{
+    const resp=await fetch(MIDI_URLS[i]);
+    const midi=new Midi(await resp.arrayBuffer());
+    const originalBpm=midi.header.tempos[0]?.bpm||100;
+    const trackParts=[];
+    const tracksDiv=document.getElementById(`tracks-${i}`);
+    tracksDiv.innerHTML='';
+    midi.tracks.forEach((track, idx)=>{
+      if(track.notes.length===0) return;
+      const name=track.name||`Traccia ${idx+1}`;
+      const isDrum=track.channel===9 || /drum|perc|batter/i.test(name);
+      tracksDiv.innerHTML+=isDrum?`<span class="badge drum">🥁 ${name}</span>`:`<span class="badge piano">🎹 ${name}</span>`;
+      const part=new Tone.Part((time, note)=>{
+        if(isDrum){
+          let which='kick'; if(note.midi===38||note.midi===40) which='snare'; else if(note.midi>42) which='hihat';
+          const p=drumKit.player(which); p.volume.value=Tone.gainToDb(note.velocity); p.start(time);
+        }else{ pianoSampler.triggerAttackRelease(note.name, note.duration, time, note.velocity); }
+      }, track.notes);
+      part.loop=false; trackParts.push(part);
+    });
+    document.getElementById(`orig-${i}`).textContent=`(orig ${Math.round(originalBpm)} bpm)`;
+    players[i]={trackParts, originalBpm, pausedAt:0, startTransportTime:0, isPlaying:false, isPaused:false};
+    document.getElementById(`status-${i}`).textContent='Pronto';
+  }catch(e){ document.getElementById(`status-${i}`).textContent='Errore'; }
+}
+
+async function handlePlay(i){
+  if(!pianoReady) return;
+  const p=players[i]; if(!p) return;
+  await Tone.start();
+  if(Tone.Transport.state!=='started') Tone.Transport.start();
+  stopAllExcept(i);
+  const target=parseFloat(document.getElementById(`bpm-${i}`).value)||DEFAULT_BPM;
+  const rate=target/p.originalBpm;
+  const now=Tone.Transport.seconds+0.15;
+  p.trackParts.forEach(part=>{ part.playbackRate=rate; part.stop(); if(p.isPaused) part.start(now, p.pausedAt); else part.start(now); });
+  if(p.isPaused) p.startTransportTime=now-(p.pausedAt/rate); else{ p.pausedAt=0; p.startTransportTime=now; }
+  p.isPlaying=true; p.isPaused=false;
+  document.querySelectorAll('.player').forEach(e=>e.classList.remove('active'));
+  document.getElementById(`player-${i}`).classList.add('active');
+  setButtonState(i,'play');
+  document.getElementById(`status-${i}`).textContent=`▶ ${target} BPM`;
+}
+function handlePause(i){
+  const p=players[i]; if(!p||!p.isPlaying) return;
+  const el=Tone.Transport.seconds-p.startTransportTime;
+  p.pausedAt+=el*p.trackParts[0].playbackRate;
+  p.trackParts.forEach(part=>part.stop());
+  p.isPlaying=false; p.isPaused=true;
+  setButtonState(i,'pause');
+  document.getElementById(`status-${i}`).textContent='⏸ Pausa';
+}
+function handleStop(i){
+  const p=players[i]; if(!p) return;
+  p.trackParts.forEach(part=>part.stop());
+  p.pausedAt=0; p.isPlaying=false; p.isPaused=false;
+  document.getElementById(`player-${i}`).classList.remove('active');
+  setButtonState(i,'stop');
+  document.getElementById(`status-${i}`).textContent='⏹ Stop';
+}
+
+async function startApp(){
+  createUI();
+  try{
+    const res = await fetch(API_URL);
+    const data = await res.json();
+    MIDI_URLS = data.midiDataUris;
+  } catch(e){
+    console.error(e);
+  }
+  MIDI_URLS.forEach((_,i)=>initPlayer(i));
+}
+startApp();
+</script>
+</body>
+</html>
