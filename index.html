@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
   html,body{margin:0;padding:0;width:100%;height:100%;background:#111;color:#fff;font-family:system-ui}
+  #app{width:100%;min-height:100%;background:#111;box-sizing:border-box}
   header{padding:14px 18px;background:#000;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;z-index:10}
   header button{background:#fff;color:#111;border:0;padding:8px 14px;border-radius:8px;cursor:pointer;font-weight:700}
   .container{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:18px;padding:18px}
@@ -28,16 +29,19 @@
   .badge{display:inline-block;font-size:10px;padding:3px 7px;border-radius:5px;background:#333;margin-right:6px}
   .badge.drum{background:#f87171;color:#111} .badge.piano{background:#60a5fa;color:#111}
   #loading{position:fixed;inset:0;background:#111;display:flex;align-items:center;justify-content:center;flex-direction:column;z-index:99}
-  body.pseudo-fullscreen{position:fixed;inset:0;z-index:9999;overflow:auto;background:#111}
-body.pseudo-fullscreen header{position:sticky;top:0}
+  /* Stesso sistema dell'app delle note */
+  #app:fullscreen{max-width:100%;width:100%;height:100%;border:none;border-radius:0;overflow:auto;background:#111}
+  #app.pseudo-fs{position:fixed;inset:0;z-index:9999;max-width:100%;width:100%;height:100%;border:none;border-radius:0;overflow:auto;background:#111}
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@tonejs/midi@2.0.28/build/Midi.js"></script>
 </head>
 <body>
+<div id="app">
 <div id="loading"><div style="font-size:18px">🎹 Caricamento pianoforte...</div><div style="font-size:12px;opacity:.6;margin-top:6px">pochi secondi la prima volta</div></div>
-<header><div>Player - Piano + Batteria</div><button id="fsBtn" onclick="toggleFullscreen()">Schermo intero</button></header>
+<header><div>Player - Piano + Batteria</div><button id="fsBtn" onclick="toggleFS()">⛶ Schermo intero</button></header>
 <div class="container" id="container"></div>
+</div>
 <script>
 const API_URL = 'https://script.google.com/macros/s/AKfycbx_zNc4fidhxvJgv392RTP5WIEF2E6vwvd5ss2AyY1nsJsrb-vquaYujHPpKeg2Zenk/exec';
 let MIDI_URLS = [];
@@ -137,37 +141,29 @@ function handleStop(i){
   setButtonState(i,'stop');
   document.getElementById(`status-${i}`).textContent='⏹ Stop';
 }
-function toggleFullscreen(){
+
+// STESSA FUNZIONE DELL'APP DELLE NOTE - solo cambiato nome
+function toggleFS(){
+  const app = document.getElementById('app');
   const btn = document.getElementById('fsBtn');
-  // Se siamo già in finto fullscreen, usciamo
-  if(document.body.classList.contains('pseudo-fullscreen')){
-    document.body.classList.remove('pseudo-fullscreen');
-    if(btn) btn.textContent = 'Schermo intero';
+  if(document.fullscreenElement || app.classList.contains('pseudo-fs')){
+    if(document.fullscreenElement) document.exitFullscreen();
+    app.classList.remove('pseudo-fs');
+    btn.textContent = '⛶ Schermo intero';
     return;
   }
-  // Proviamo il vero fullscreen (funziona su GitHub diretto)
-  try{
-    const p = document.documentElement.requestFullscreen && document.documentElement.requestFullscreen();
-    if(p && p.catch){
-      p.then(()=>{
-        if(btn) btn.textContent = 'Esci da Schermo intero';
-      }).catch(()=>{
-        // Sites lo blocca -> usiamo il finto
-        document.body.classList.add('pseudo-fullscreen');
-        if(btn) btn.textContent = 'Esci da Schermo intero';
-      });
-      return;
-    }
-    if(btn) btn.textContent = 'Esci da Schermo intero';
-  }catch(e){
-    document.body.classList.add('pseudo-fullscreen');
-    if(btn) btn.textContent = 'Esci da Schermo intero';
-  }
+  if(app.requestFullscreen){
+    app.requestFullscreen().then(()=>{ btn.textContent = '✕ Esci'; }).catch(()=>{ app.classList.add('pseudo-fs'); btn.textContent = '✕ Esci'; });
+  } else { app.classList.add('pseudo-fs'); btn.textContent = '✕ Esci'; }
 }
 document.addEventListener('fullscreenchange', ()=>{
-  const btn = document.getElementById('fsBtn');
-  if(!document.fullscreenElement && btn) btn.textContent = 'Schermo intero';
+  if(!document.fullscreenElement){
+    const app = document.getElementById('app');
+    app.classList.remove('pseudo-fs');
+    document.getElementById('fsBtn').textContent = '⛶ Schermo intero';
+  }
 });
+
 async function startApp(){
   createUI();
   try{
