@@ -28,13 +28,15 @@
   .badge{display:inline-block;font-size:10px;padding:3px 7px;border-radius:5px;background:#333;margin-right:6px}
   .badge.drum{background:#f87171;color:#111} .badge.piano{background:#60a5fa;color:#111}
   #loading{position:fixed;inset:0;background:#111;display:flex;align-items:center;justify-content:center;flex-direction:column;z-index:99}
+  body.pseudo-fullscreen{position:fixed;inset:0;z-index:9999;overflow:auto;background:#111}
+body.pseudo-fullscreen header{position:sticky;top:0}
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@tonejs/midi@2.0.28/build/Midi.js"></script>
 </head>
 <body>
 <div id="loading"><div style="font-size:18px">🎹 Caricamento pianoforte...</div><div style="font-size:12px;opacity:.6;margin-top:6px">pochi secondi la prima volta</div></div>
-<header><div>Player - Piano + Batteria</div><button onclick="document.documentElement.requestFullscreen()">Schermo intero</button></header>
+<header><div>Player - Piano + Batteria</div><button id="fsBtn" onclick="toggleFullscreen()">Schermo intero</button></header>
 <div class="container" id="container"></div>
 <script>
 const API_URL = 'https://script.google.com/macros/s/AKfycbx_zNc4fidhxvJgv392RTP5WIEF2E6vwvd5ss2AyY1nsJsrb-vquaYujHPpKeg2Zenk/exec';
@@ -135,7 +137,37 @@ function handleStop(i){
   setButtonState(i,'stop');
   document.getElementById(`status-${i}`).textContent='⏹ Stop';
 }
-
+function toggleFullscreen(){
+  const btn = document.getElementById('fsBtn');
+  // Se siamo già in finto fullscreen, usciamo
+  if(document.body.classList.contains('pseudo-fullscreen')){
+    document.body.classList.remove('pseudo-fullscreen');
+    if(btn) btn.textContent = 'Schermo intero';
+    return;
+  }
+  // Proviamo il vero fullscreen (funziona su GitHub diretto)
+  try{
+    const p = document.documentElement.requestFullscreen && document.documentElement.requestFullscreen();
+    if(p && p.catch){
+      p.then(()=>{
+        if(btn) btn.textContent = 'Esci da Schermo intero';
+      }).catch(()=>{
+        // Sites lo blocca -> usiamo il finto
+        document.body.classList.add('pseudo-fullscreen');
+        if(btn) btn.textContent = 'Esci da Schermo intero';
+      });
+      return;
+    }
+    if(btn) btn.textContent = 'Esci da Schermo intero';
+  }catch(e){
+    document.body.classList.add('pseudo-fullscreen');
+    if(btn) btn.textContent = 'Esci da Schermo intero';
+  }
+}
+document.addEventListener('fullscreenchange', ()=>{
+  const btn = document.getElementById('fsBtn');
+  if(!document.fullscreenElement && btn) btn.textContent = 'Schermo intero';
+});
 async function startApp(){
   createUI();
   try{
